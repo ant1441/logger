@@ -3,14 +3,13 @@ package logger
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -36,9 +35,11 @@ func TestNoConfig(t *testing.T) {
 
 func TestDefaultConfig(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Out: buf,
+		Logger: logger,
 	})
 
 	res := httptest.NewRecorder()
@@ -50,20 +51,18 @@ func TestDefaultConfig(t *testing.T) {
 	expect(t, res.Code, http.StatusOK)
 	expect(t, res.Body.String(), "bar")
 
-	expectContainsTrue(t, buf.String(), fmt.Sprintf("%d", http.StatusOK))
-	expectContainsTrue(t, buf.String(), "GET")
-	expectContainsTrue(t, buf.String(), url)
-
-	// LstdFlags output.
-	curDate := time.Now().Format("2006/01/02 15:04")
-	expectContainsTrue(t, buf.String(), curDate)
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusOK))
+	expectContainsTrue(t, buf.String(), "http_method=GET")
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_uri=\"%s\"", url))
 }
 
 func TestDefaultConfigPostError(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Out: buf,
+		Logger: logger,
 	})
 
 	res := httptest.NewRecorder()
@@ -73,19 +72,17 @@ func TestDefaultConfigPostError(t *testing.T) {
 	expect(t, res.Code, http.StatusBadGateway)
 	expect(t, strings.TrimSpace(res.Body.String()), strings.TrimSpace(http.StatusText(http.StatusBadGateway)))
 
-	expectContainsTrue(t, buf.String(), fmt.Sprintf("%d", http.StatusBadGateway))
-	expectContainsTrue(t, buf.String(), "POST")
-
-	// LstdFlags output.
-	curDate := time.Now().Format("2006/01/02 15:04")
-	expectContainsTrue(t, buf.String(), curDate)
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusBadGateway))
+	expectContainsTrue(t, buf.String(), "http_method=POST")
 }
 
 func TestResponseSize(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Out: buf,
+		Logger: logger,
 	})
 
 	res := httptest.NewRecorder()
@@ -93,15 +90,17 @@ func TestResponseSize(t *testing.T) {
 	l.Handler(myHandler).ServeHTTP(res, req)
 
 	// Result of myHandler should be three bytes.
-	expectContainsTrue(t, buf.String(), " 3 ")
+	expectContainsTrue(t, buf.String(), "http_size=3")
 }
 
-func TestCustomPrefix(t *testing.T) {
+func TestCustomMessage(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Prefix: "testapp_-_yo",
-		Out:    buf,
+		Message: "some message",
+		Logger:  logger,
 	})
 
 	res := httptest.NewRecorder()
@@ -111,78 +110,37 @@ func TestCustomPrefix(t *testing.T) {
 	expect(t, res.Code, http.StatusOK)
 	expect(t, res.Body.String(), "bar")
 
-	expectContainsTrue(t, buf.String(), "200")
-	expectContainsTrue(t, buf.String(), "GET")
-	expectContainsTrue(t, buf.String(), "[testapp_-_yo] ")
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusOK))
+	expectContainsTrue(t, buf.String(), "http_method=GET")
+	expectContainsTrue(t, buf.String(), "msg=\"some message\"")
 }
 
-func TestCustomPrefixWithNoBrackets(t *testing.T) {
+func TestCustomFields(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Prefix:              "testapp_-_yo2()",
-		DisableAutoBrackets: true,
-		Out:                 buf,
+		Logger:       logger,
+		CustomFields: logrus.Fields{"foo": "bar"},
 	})
 
 	res := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/foo", nil)
 	l.Handler(myHandler).ServeHTTP(res, req)
 
-	expectContainsTrue(t, buf.String(), "200")
-	expectContainsTrue(t, buf.String(), "GET")
-	expectContainsTrue(t, buf.String(), "testapp_-_yo2()")
-	expectContainsFalse(t, buf.String(), "[testapp_-_yo2()] ")
-}
-
-func TestCustomFlags(t *testing.T) {
-	buf := bytes.NewBufferString("")
-
-	r := New(Options{
-		OutputFlags: log.Lshortfile,
-		Out:         buf,
-	})
-
-	res := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/foo", nil)
-	r.Handler(myHandler).ServeHTTP(res, req)
-
-	expectContainsTrue(t, buf.String(), "200")
-	expectContainsTrue(t, buf.String(), "GET")
-
-	// Log should start with...
-	expect(t, buf.String()[0:10], "logger.go:")
-
-	// Should not include a date now.
-	curDate := time.Now().Format("2006/01/02")
-	expectContainsFalse(t, buf.String(), curDate)
-}
-
-func TestCustomFlagsZero(t *testing.T) {
-	buf := bytes.NewBufferString("")
-
-	l := New(Options{
-		OutputFlags: -1,
-		Out:         buf,
-	})
-
-	res := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/foo", nil)
-	l.Handler(myHandler).ServeHTTP(res, req)
-
-	expectContainsTrue(t, buf.String(), "200")
-	expectContainsTrue(t, buf.String(), "GET")
-
-	// Should not include a date now.
-	curDate := time.Now().Format("2006/01/02")
-	expectContainsFalse(t, buf.String(), curDate)
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusOK))
+	expectContainsTrue(t, buf.String(), "http_method=GET")
+	expectContainsFalse(t, buf.String(), "foo=\"bar\"")
 }
 
 func TestDefaultRemoteAddress(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Out: buf,
+		Logger: logger,
 	})
 
 	res := httptest.NewRecorder()
@@ -190,16 +148,18 @@ func TestDefaultRemoteAddress(t *testing.T) {
 	req.RemoteAddr = "8.8.4.4"
 	l.Handler(myHandler).ServeHTTP(res, req)
 
-	expectContainsTrue(t, buf.String(), "200")
-	expectContainsTrue(t, buf.String(), "GET")
-	expectContainsTrue(t, buf.String(), req.RemoteAddr)
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusOK))
+	expectContainsTrue(t, buf.String(), "http_method=GET")
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_addr=%s", req.RemoteAddr))
 }
 
 func TestDefaultRemoteAddressWithXForwardFor(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Out:                  buf,
+		Logger:               logger,
 		RemoteAddressHeaders: []string{"X-Forwarded-Proto"},
 	})
 
@@ -209,17 +169,19 @@ func TestDefaultRemoteAddressWithXForwardFor(t *testing.T) {
 	req.Header.Add("X-Forwarded-Proto", "12.34.56.78")
 	l.Handler(myHandler).ServeHTTP(res, req)
 
-	expectContainsTrue(t, buf.String(), "200")
-	expectContainsTrue(t, buf.String(), "GET")
-	expectContainsTrue(t, buf.String(), "12.34.56.78")
-	expectContainsFalse(t, buf.String(), req.RemoteAddr)
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusOK))
+	expectContainsTrue(t, buf.String(), "http_method=GET")
+	expectContainsTrue(t, buf.String(), "http_addr=12.34.56.78")
+	expectContainsFalse(t, buf.String(), fmt.Sprintf("http_addr=%s", req.RemoteAddr))
 }
 
 func TestDefaultRemoteAddressWithXForwardForFallback(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Out:                  buf,
+		Logger:               logger,
 		RemoteAddressHeaders: []string{"X-Forwarded-Proto"},
 	})
 
@@ -228,16 +190,18 @@ func TestDefaultRemoteAddressWithXForwardForFallback(t *testing.T) {
 	req.RemoteAddr = "8.8.4.4"
 	l.Handler(myHandler).ServeHTTP(res, req)
 
-	expectContainsTrue(t, buf.String(), "200")
-	expectContainsTrue(t, buf.String(), "GET")
-	expectContainsTrue(t, buf.String(), req.RemoteAddr)
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusOK))
+	expectContainsTrue(t, buf.String(), "http_method=GET")
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_addr=%s", req.RemoteAddr))
 }
 
 func TestDefaultRemoteAddressMultiples(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Out:                  buf,
+		Logger:               logger,
 		RemoteAddressHeaders: []string{"X-Real-IP", "X-Forwarded-Proto"},
 	})
 
@@ -248,18 +212,20 @@ func TestDefaultRemoteAddressMultiples(t *testing.T) {
 	req.Header.Add("X-Real-IP", "98.76.54.32")
 	l.Handler(myHandler).ServeHTTP(res, req)
 
-	expectContainsTrue(t, buf.String(), "200")
-	expectContainsTrue(t, buf.String(), "GET")
-	expectContainsTrue(t, buf.String(), "98.76.54.32")
-	expectContainsFalse(t, buf.String(), "12.34.56.78")
-	expectContainsFalse(t, buf.String(), req.RemoteAddr)
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusOK))
+	expectContainsTrue(t, buf.String(), "http_method=GET")
+	expectContainsTrue(t, buf.String(), "http_addr=98.76.54.32")
+	expectContainsFalse(t, buf.String(), "http_addr=12.34.56.78")
+	expectContainsFalse(t, buf.String(), fmt.Sprintf("http_addr=%s", req.RemoteAddr))
 }
 
 func TestDefaultRemoteAddressMultiplesFallback(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Out:                  buf,
+		Logger:               logger,
 		RemoteAddressHeaders: []string{"X-Real-IP", "X-Forwarded-Proto"},
 	})
 
@@ -269,18 +235,20 @@ func TestDefaultRemoteAddressMultiplesFallback(t *testing.T) {
 	req.Header.Add("X-Forwarded-Proto", "12.34.56.78")
 	l.Handler(myHandler).ServeHTTP(res, req)
 
-	expectContainsTrue(t, buf.String(), "200")
-	expectContainsTrue(t, buf.String(), "GET")
-	expectContainsFalse(t, buf.String(), "98.76.54.32")
-	expectContainsTrue(t, buf.String(), "12.34.56.78")
-	expectContainsFalse(t, buf.String(), req.RemoteAddr)
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusOK))
+	expectContainsTrue(t, buf.String(), "http_method=GET")
+	expectContainsFalse(t, buf.String(), "http_addr=98.76.54.32")
+	expectContainsTrue(t, buf.String(), "http_addr=12.34.56.78")
+	expectContainsFalse(t, buf.String(), fmt.Sprintf("http_addr=%s", req.RemoteAddr))
 }
 
 func TestIgnoreMultipleConfigs(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
-	opt1 := Options{Out: buf}
-	opt2 := Options{Out: os.Stderr, OutputFlags: -1}
+	opt1 := Options{Logger: logger}
+	opt2 := Options{}
 
 	l := New(opt1, opt2)
 
@@ -293,20 +261,18 @@ func TestIgnoreMultipleConfigs(t *testing.T) {
 	expect(t, res.Code, http.StatusOK)
 	expect(t, res.Body.String(), "bar")
 
-	expectContainsTrue(t, buf.String(), fmt.Sprintf("%d", http.StatusOK))
-	expectContainsTrue(t, buf.String(), "GET")
-	expectContainsTrue(t, buf.String(), url)
-
-	// LstdFlags output.
-	curDate := time.Now().Format("2006/01/02 15:04")
-	expectContainsTrue(t, buf.String(), curDate)
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusOK))
+	expectContainsTrue(t, buf.String(), "http_method=GET")
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_uri=%s", url))
 }
 
 func TestIgnoredURIsNoMatch(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Out:                buf,
+		Logger:             logger,
 		IgnoredRequestURIs: []string{"/favicon.ico"},
 	})
 
@@ -314,15 +280,17 @@ func TestIgnoredURIsNoMatch(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/foo", nil)
 	l.Handler(myHandler).ServeHTTP(res, req)
 
-	expectContainsTrue(t, buf.String(), "200")
-	expectContainsTrue(t, buf.String(), "GET")
+	expectContainsTrue(t, buf.String(), fmt.Sprintf("http_status=%d", http.StatusOK))
+	expectContainsTrue(t, buf.String(), "http_method=GET")
 }
 
 func TestIgnoredURIsMatchig(t *testing.T) {
 	buf := bytes.NewBufferString("")
+	logger := logrus.New()
+	logger.SetOutput(buf)
 
 	l := New(Options{
-		Out:                buf,
+		Logger:             logger,
 		IgnoredRequestURIs: []string{"/favicon.ico", "/foo"},
 	})
 

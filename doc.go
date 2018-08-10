@@ -1,4 +1,4 @@
-/*Package logger is an HTTP middleware for Go that logs web requests to an io.Writer.
+/*Package logger is an HTTP middleware for Go that logs web requests to a logrus.Logger.
 
   package main
 
@@ -6,7 +6,7 @@
       "log"
       "net/http"
 
-      "github.com/unrolled/logger"
+      "github.com/ant1441/logger-logrus"
   )
 
   var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -15,9 +15,7 @@
 
   func main() {
       loggerMiddleware := logger.New(logger.Options{
-          Prefix: "MySampleWebApp",
           RemoteAddressHeaders: []string{"X-Forwarded-Proto"},
-          OutputFlags: log.LstdFlags,
       })
 
       // loggerWithDefaults := logger.New()
@@ -28,10 +26,6 @@
 
 A simple GET request to "/info/" will output:
 
-  [MySampleWebApp] 2014/11/21 14:11:21 (12.34.56.78) "GET /info/ HTTP/1.1" 200 11 12.54µs
-
-Here's a breakdown of what the values mean:
-
-  [SuppliedPrefix] Date Time (RemoteIP) "Method RequestURI Protocol" StatusCode Size Time
+  INFO[0013] Request received                              http_addr="127.0.0.1:41634" http_duration="4.511µs" http_method=GET http_proto=HTTP/1.1 http_size=11 http_status=200 http_uri=/info
 */
 package logger

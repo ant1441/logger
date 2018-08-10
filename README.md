@@ -1,6 +1,9 @@
-# Logger [![GoDoc](https://godoc.org/github.com/unrolled/logger?status.svg)](http://godoc.org/github.com/unrolled/logger) [![Build Status](https://travis-ci.org/unrolled/logger.svg)](https://travis-ci.org/unrolled/logger)
+# Logger-logrus [![GoDoc](https://godoc.org/github.com/ant1441/logger-logrus?status.svg)](http://godoc.org/github.com/ant1441/logger-logrus) [![Build Status](https://travis-ci.org/ant1441/logger-logrus.svg)](https://travis-ci.org/ant1441/logger-logrus)
 
-Logger is an HTTP middleware for Go that logs web requests to an io.Writer (the default being `os.Stdout`). It's a standard net/http [Handler](http://golang.org/pkg/net/http/#Handler), and can be used with many frameworks or directly with Go's net/http package.
+Logger-logrus is an HTTP middleware for Go that logs web requests to an logrus.Logger (the default being `logrus.StandardLogger()`).
+It's a standard net/http [Handler](http://golang.org/pkg/net/http/#Handler), and can be used with many frameworks or directly with Go's net/http package.
+
+This fork of [unrolled/logger](https://github.com/unrolled/logger) was build to support [https://github.com/sirupsen/logrus](https://github.com/sirupsen/logrus)
 
 ## Usage
 
@@ -12,7 +15,7 @@ import (
     "log"
     "net/http"
 
-    "github.com/unrolled/logger"
+    "github.com/ant1441/logger-logrus"
 )
 
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -21,25 +24,20 @@ var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 func main() {
     loggerWithConfigMiddleware := logger.New(logger.Options{
-        Prefix: "MySampleWebApp",
         RemoteAddressHeaders: []string{"X-Forwarded-For"},
-        OutputFlags: log.LstdFlags,
     })
 
     // loggerWithDefaults := logger.New()
 
-    app := loggerMiddleware.Handler(myHandler)
+    app := loggerWithConfigMiddleware.Handler(myHandler)
     http.ListenAndServe("0.0.0.0:3000", app)
 }
 ~~~
 
 A simple GET request to "/info/" will output:
 ~~~ bash
-[MySampleWebApp] 2014/11/21 14:11:21 (12.34.56.78) "GET /info/ HTTP/1.1" 200 11 12.54µs
+INFO[0013] Request received                              http_addr="127.0.0.1:41634" http_duration="4.511µs" http_method=GET http_proto=HTTP/1.1 http_size=11 http_status=200 http_uri=/info
 ~~~
-
-Here's a breakdown of what the values mean: `[SuppliedPrefix] Date Time (RemoteIP) "Method RequestURI Protocol" StatusCode Size Time`.
-Note that the `Date Time` is controlled by the output flags. See http://golang.org/pkg/log/#pkg-constants.
 
 Be sure to use the Logger middleware as the very first handler in the chain. This will ensure that your subsequent handlers (like [Recovery](http://github.com/unrolled/recovery)) will always be logged.
 
@@ -49,11 +47,10 @@ Logger comes with a variety of configuration options (Note: these are not the de
 ~~~ go
 // ...
 l := logger.New(logger.Options{        
-    Prefix: "myApp", // Prefix is the outputted keyword in front of the log message. Logger automatically wraps the prefix in square brackets (ie. [myApp] ) unless the `DisableAutoBrackets` is set to true. A blank value will not have brackets added. Default is blank (with no brackets).
-    DisableAutoBrackets: false, // DisableAutoBrackets if set to true, will remove the prefix and square brackets. Default is false.
+    Message: "Request received", // Message is the outputted log message, default is "Request received"
+    CustomFields logrus.Fields, // CustomFields allows passing of custom logging fields, default is empty
     RemoteAddressHeaders: []string{"X-Forwarded-For"}, // RemoteAddressHeaders is a list of header keys that Logger will look at to determine the proper remote address. Useful when using a proxy like Nginx: `[]string{"X-Forwarded-For"}`. Default is an empty slice, and thus will use `reqeust.RemoteAddr`.
-    Out: os.Stdout, // Out is the destination to which the logged data will be written too. Default is `os.Stdout`.
-    OutputFlags: log.Ldate | log.Ltime, // OutputFlags defines the logging properties. See http://golang.org/pkg/log/#pkg-constants. To disable all flags, set this to `-1`. Defaults to log.LstdFlags (2009/01/23 01:23:23).
+    Logger: os.Stdout, // Logger is the logrus.Logger used. Default is logrus.StandardLogger() is used
     IgnoredRequestURIs: []string{"/favicon.ico"}, // IgnoredRequestURIs is a list of path values we do not want logged out. Exact match only!
 })
 // ...
@@ -68,17 +65,17 @@ l := logger.New()
 // Is the same as the default configuration options:
 
 l := logger.New(logger.Options{        
-    Prefix: "",
-    DisableAutoBrackets: false,
+    Message: "Request received",
     RemoteAddressHeaders: []string{},
-    Out: os.Stdout,
-    OutputFlags log.LstdFlags,
+    Out: logrus.StandardLogger(),
     IgnoredRequestURIs: []string{},
 })
 ~~~
 
 ### Capturing the proper remote address
-If your app is behind a load balancer or proxy, the default `Request.RemoteAddr` will likely be wrong. To ensure you're logging the correct IP address, you can set the `RemoteAddressHeaders` option to a list of header names you'd like to use. Logger will iterate over the slice and use the first header value it finds. If it finds none, it will default to the `Request.RemoteAddr`.
+If your app is behind a load balancer or proxy, the default `Request.RemoteAddr` will likely be wrong.
+To ensure you're logging the correct IP address, you can set the `RemoteAddressHeaders` option to a list of header names you'd like to use. Logger will iterate over the slice and use the first header value it finds.
+If it finds none, it will default to the `Request.RemoteAddr`.
 
 ~~~ go
 package main
@@ -87,7 +84,7 @@ import (
     "log"
     "net/http"
 
-    "github.com/unrolled/logger"
+    "github.com/ant1441/logger-logrus"
 )
 
 var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
